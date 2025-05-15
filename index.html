@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Waste Classifier</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@2.0.0/dist/tf.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      text-align: center;
+    }
+    
+    h1 {
+      color: #2c7f3e;
+    }
+    
+    #result {
+      margin: 20px 0;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      font-size: 18px;
+    }
+    
+    #imagePreview {
+      max-width: 100%;
+      max-height: 300px;
+      margin: 20px 0;
+      display: none;
+    }
+    
+    .button {
+      background-color: #2c7f3e;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    
+    #chart {
+      margin-top: 20px;
+      height: 200px;
+    }
+  </style>
+</head>
+<body>
+  <h1>EcoSort: Waste Classification</h1>
+  <p>Take or upload a photo of waste to classify it</p>
+  
+  <input type="file" id="imageUpload" accept="image/*" capture="camera" style="display: none;">
+  <button class="button" onclick="document.getElementById('imageUpload').click()">Take/Upload Photo</button>
+  
+  <img id="imagePreview" src="#" alt="Preview">
+  <div id="result">Upload an image to classify</div>
+  <div id="chart"></div>
+  
+  <script>
+    let model;
+    const classLabels = ['cardboard', 'glass', 'metal', 'paper', 'plastic', 'trash', 'other'];
+    
+    // Load the model
+    async function loadModel() {
+      document.getElementById('result').textContent = 'Loading model...';
+      try {
+        model = await tf.loadLayersModel('model/model.json');
+        document.getElementById('result').textContent = 'Model loaded! Upload an image to classify.';
+        console.log('Model loaded');
+      } catch (error) {
+        document.getElementById('result').textContent = 'Error loading model. Please try again later.';
+        console.error('Error loading model:', error);
+      }
+    }
+    
+    // Initialize the application
+    loadModel();
+    
+    // Handle image upload
+    document.getElementById('imageUpload').addEventListener('change', async function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      // Display image preview
+      const preview = document.getElementById('imagePreview');
+      preview.src = URL.createObjectURL(file);
+      preview.style.display = 'block';
+      
+      // Show loading message
+      document.getElementById('result').textContent = 'Analyzing image...';
+      
+      try {
+        // Create an image element for TensorFlow.js
+        const img = document.createElement('img');
+        img.src = preview.src;
+        
+        await img.decode(); // Wait for image to load
+        
+        // Preprocess image
+        const tensor = tf.browser.fromPixels(img)
+          .resizeBilinear([260, 260]) // EfficientNetB2 input size
+          .toFloat()
+          .div(tf.scalar(255))
+          .expandDims();
+        
+        // Make prediction
+        const predictions = await model.predict(tensor).data();
+        
+        // Find the class with highest probability
+        const maxProbability = Math.max(...predictions);
+        const classIndex = predictions.indexOf(maxProbability);
+        const className = classLabels[classIndex];
+        
+        // Display result
+        document.getElementById('result').innerHTML = 
+          `<strong>Prediction:</strong> ${className}<br>` +
+          `<strong>Confidence:</strong> ${(maxProbability * 100).toFixed(2)}%`;
+        
+        // Create simple bar chart
+        const chartDiv = document.getElementById('chart');
+        chartDiv.innerHTML = '';
+        
+        for (let i = 0; i < classLabels.length; i++) {
+          const probability = predictions[i] * 100;
+          
+          const barContainer = document.createElement('div');
+          barContainer.style.display = 'flex';
+          barContainer.style.alignItems = 'center';
+          barContainer.style.margin = '5px 0';
+          
+          const label = document.createElement('div');
+          label.style.width = '100px';
+          label.style.textAlign = 'right';
+          label.style.paddingRight = '10px';
+          label.textContent = classLabels[i];
+          
+          const barOuter = document.createElement('div');
+          barOuter.style.flex = '1';
+          barOuter.style.backgroundColor = '#eee';
+          barOuter.style.borderRadius = '3px';
+          barOuter.style.overflow = 'hidden';
+          
+          const barInner = document.createElement('div');
+          barInner.style.width = `${probability}%`;
+          barInner.style.backgroundColor = i === classIndex ? '#2c7f3e' : '#aaa';
+          barInner.style.height = '20px';
+          
+          const percentText = document.createElement('div');
+          percentText.style.marginLeft = '10px';
+          percentText.style.width = '60px';
+          percentText.textContent = `${probability.toFixed(1)}%`;
+          
+          barOuter.appendChild(barInner);
+          barContainer.appendChild(label);
+          barContainer.appendChild(barOuter);
+          barContainer.appendChild(percentText);
+          chartDiv.appendChild(barContainer);
+        }
+        
+        // Clean up tensors to prevent memory leaks
+        tensor.dispose();
+        
+      } catch (error) {
+        document.getElementById('result').textContent = 'Error analyzing image. Please try again.';
+        console.error('Error during prediction:', error);
+      }
+    });
+  </script>
+</body>
+</html>
